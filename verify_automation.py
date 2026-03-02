@@ -41,19 +41,26 @@ def verify_full_automation():
                 VALUES (%s, %s, %s, %s)
             """, (str(uuid.uuid4()), test_payer_id, test_plan_id, False))
             
-            # Check if synced
+            # Check if synced to plan_details
             cur.execute("SELECT status FROM plan_details WHERE plan_id = %s", (test_plan_id,))
-            status = cur.fetchone()[0]
-            print(f"Resulting plan_details status: {status}")
-            if status == 'inactive':
+            plan_status = cur.fetchone()[0]
+            print(f"Resulting plan_details status: {plan_status}")
+            
+            # Check if synced to drug_formulary_details (plan_status column)
+            cur.execute("SELECT plan_status FROM drug_formulary_details WHERE plan_id = %s LIMIT 1", (test_plan_id,))
+            drug_row = cur.fetchone()
+            drug_plan_status = drug_row[0] if drug_row else "N/A (No drugs for this plan)"
+            print(f"Resulting drug_formulary_details plan_status: {drug_plan_status}")
+
+            if plan_status == 'inactive' and (drug_row is None or drug_plan_status == 'inactive'):
                 print("PASSED: INSERT automation works!")
             else:
-                print("FAILED: INSERT automation failed.")
+                print(f"FAILED: INSERT automation failed. (Plan: {plan_status}, Drug: {drug_plan_status})")
         else:
             print("Skipping INSERT test (no plans found without coverage records).")
 
-        # 2. Test UPDATE Automation
-        print("\n[Test 2] Testing UPDATE automation...")
+        # 2. Test UPDATE Automation (Inactivate)
+        print("\n[Test 2] Testing UPDATE automation (Inactivate)...")
         cur.execute("""
             SELECT pd.plan_id 
             FROM plan_details pd 
@@ -69,14 +76,45 @@ def verify_full_automation():
             
             # Check if synced
             cur.execute("SELECT status FROM plan_details WHERE plan_id = %s", (up_plan_id,))
-            status = cur.fetchone()[0]
-            print(f"Resulting plan_details status: {status}")
-            if status == 'inactive':
-                print("PASSED: UPDATE automation works!")
+            plan_status = cur.fetchone()[0]
+            cur.execute("SELECT plan_status FROM drug_formulary_details WHERE plan_id = %s LIMIT 1", (up_plan_id,))
+            drug_row = cur.fetchone()
+            drug_plan_status = drug_row[0] if drug_row else "N/A"
+            
+            print(f"Resulting plan_details status: {plan_status}")
+            print(f"Resulting drug_formulary_details plan_status: {drug_plan_status}")
+            
+            if plan_status == 'inactive' and (drug_row is None or drug_plan_status == 'inactive'):
+                print("PASSED: UPDATE (Inactivate) automation works!")
             else:
-                print("FAILED: UPDATE automation failed.")
+                print("FAILED: UPDATE (Inactivate) automation failed.")
         else:
-            print("Skipping UPDATE test (no active plans found with coverage records).")
+            print("Skipping UPDATE (Inactivate) test (no active plans found with coverage records).")
+
+        # 3. Test UPDATE Automation (Re-activate)
+        print("\n[Test 3] Testing UPDATE automation (Re-activate)...")
+        # We just inactivated up_plan_id, let's reactivate it
+        if update_row:
+            up_plan_id = update_row[0]
+            print(f"Updating coverage record for Plan: {up_plan_id} to active_flag = TRUE")
+            cur.execute("UPDATE coverage_history SET active_flag = TRUE WHERE plan_id = %s", (up_plan_id,))
+            
+            # Check if synced
+            cur.execute("SELECT status FROM plan_details WHERE plan_id = %s", (up_plan_id,))
+            plan_status = cur.fetchone()[0]
+            cur.execute("SELECT plan_status FROM drug_formulary_details WHERE plan_id = %s LIMIT 1", (up_plan_id,))
+            drug_row = cur.fetchone()
+            drug_plan_status = drug_row[0] if drug_row else "N/A"
+            
+            print(f"Resulting plan_details status: {plan_status}")
+            print(f"Resulting drug_formulary_details plan_status: {drug_plan_status}")
+            
+            if plan_status == 'active' and (drug_row is None or drug_plan_status == 'active'):
+                print("PASSED: UPDATE (Activate) automation works!")
+            else:
+                print("FAILED: UPDATE (Activate) automation failed.")
+        else:
+            print("Skipping UPDATE (Activate) test.")
 
         # Rollback all test data
         conn.rollback()

@@ -26,26 +26,34 @@ def verify_and_apply_trigger():
         logger.info("Table 'coverage_history' found. Proceeding with trigger application...")
 
         sql_script = """
-CREATE OR REPLACE FUNCTION sync_plan_inactivity()
+CREATE OR REPLACE FUNCTION sync_coverage_to_plan_status()
 RETURNS TRIGGER AS $$
+DECLARE
+    new_status VARCHAR(20);
 BEGIN
-    -- Fire if the plan is being marked as inactive (active_flag = FALSE)
-    -- This handles both new INSERTS and UPDATES from TRUE to FALSE
-    IF (NEW.active_flag IS FALSE) THEN
-        UPDATE plan_details
-        SET status = 'inactive',
-            last_updated_date = CURRENT_TIMESTAMP
-        WHERE plan_id = NEW.plan_id
-        AND status != 'inactive'; -- Only update if not already inactive
-
-        UPDATE drug_formulary_details
-        SET coverage_status = 'Inactive',
-            last_updated_date = CURRENT_TIMESTAMP
-        WHERE plan_id = NEW.plan_id
-        AND coverage_status != 'Inactive';
-        
-        RAISE NOTICE 'Trigger: Plan % and its formulary records marked as inactive.', NEW.plan_id;
+    -- Determine the new status text based on the active_flag
+    IF (NEW.active_flag IS TRUE) THEN
+        new_status := 'active';
+    ELSE
+        new_status := 'inactive';
     END IF;
+
+    -- 1. Sync status to plan_details
+    UPDATE plan_details
+    SET status = new_status,
+        last_updated_date = CURRENT_TIMESTAMP
+    WHERE plan_id = NEW.plan_id
+    AND status != new_status;
+
+    -- 2. Sync status to drug_formulary_details (new column)
+    UPDATE drug_formulary_details
+    SET plan_status = new_status,
+        last_updated_date = CURRENT_TIMESTAMP
+    WHERE plan_id = NEW.plan_id
+    AND plan_status != new_status;
+    
+    RAISE NOTICE 'Trigger: Plan % status synced to % in all related tables.', NEW.plan_id, new_status;
+    
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
@@ -54,7 +62,7 @@ DROP TRIGGER IF EXISTS trg_sync_plan_inactivity ON coverage_history;
 CREATE TRIGGER trg_sync_plan_inactivity
 AFTER INSERT OR UPDATE ON coverage_history
 FOR EACH ROW
-EXECUTE FUNCTION sync_plan_inactivity();
+EXECUTE FUNCTION sync_coverage_to_plan_status();
 """
         cur.execute(sql_script)
         conn.commit()

@@ -228,6 +228,7 @@ def ensure_database_schema():
                     source_url TEXT,
                     file_name VARCHAR(1000),
                     status VARCHAR(20) DEFAULT 'processing',
+                    plan_status VARCHAR(20) DEFAULT 'active',
                      
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     last_updated_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -307,6 +308,16 @@ def ensure_database_schema():
             conn.commit()
         except Exception as e:
             logger.debug(f"Status column may already exist in drug_formulary_details: {e}")
+            conn.rollback()
+
+        try:
+            cursor.execute("""
+                ALTER TABLE drug_formulary_details
+                ADD COLUMN IF NOT EXISTS plan_status VARCHAR(20) DEFAULT 'active'
+            """)
+            conn.commit()
+        except Exception as e:
+            logger.debug(f"plan_status column may already exist in drug_formulary_details: {e}")
             conn.rollback()
 
         try:
@@ -419,6 +430,7 @@ def ensure_database_schema():
         _add_index(conn, cursor, "CREATE INDEX IF NOT EXISTS idx_prior_auth ON drug_formulary_details(is_prior_authorization_required)", "idx_prior_auth")
         _add_index(conn, cursor, "CREATE INDEX IF NOT EXISTS idx_step_therapy ON drug_formulary_details(is_step_therapy_required)", "idx_step_therapy")
         _add_index(conn, cursor, "CREATE INDEX IF NOT EXISTS idx_drug_status ON drug_formulary_details(status)", "idx_drug_status")
+        _add_index(conn, cursor, "CREATE INDEX IF NOT EXISTS idx_drug_plan_status ON drug_formulary_details(plan_status)", "idx_drug_plan_status")
         _add_index(conn, cursor, "CREATE INDEX IF NOT EXISTS idx_created_at ON drug_formulary_details(created_at)", "idx_created_at")
 
         # Composite indexes for common queries
